@@ -11,6 +11,7 @@ import {
     UserCheck,
     PlusSquare,
     Image,
+    Palette,
     Settings
 } from "lucide-react";
 
@@ -23,6 +24,7 @@ export const NAV_ITEMS = [
         match: ["/dashboard/categories", "/dashboard/subcategories"]
     },
     { label: "Products", href: "/dashboard/products", icon: Box },
+    { label: "Filaments", href: "/dashboard/filaments", icon: Palette },
     { label: "Quotations", href: "/dashboard/quotations", icon: FileText },
     { label: "Orders", href: "/dashboard/orders", icon: Package },
     { label: "Team", href: "/dashboard/users", icon: Users },

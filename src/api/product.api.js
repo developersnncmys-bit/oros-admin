@@ -24,6 +24,14 @@ export const updateProduct = async (id, payload) => {
     return data;
 };
 
+export const setProductFilaments = async (id, filamentIds) => {
+    const { data } = await axiosInstance.put(`/product/${id}/filaments`, {
+        filaments: filamentIds
+    });
+
+    return data;
+};
+
 export const deleteProduct = async (id) => {
     const { data } = await axiosInstance.delete(`/product/${id}`);
 

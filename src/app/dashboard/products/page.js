@@ -15,12 +15,13 @@ import SpecsTab from "@/components/admin/product-tabs/SpecsTab";
 import OptionsTab from "@/components/admin/product-tabs/OptionsTab";
 import PriceSlabsTab from "@/components/admin/product-tabs/PriceSlabsTab";
 import ShippingTab from "@/components/admin/product-tabs/ShippingTab";
+import FilamentsTab from "@/components/admin/product-tabs/FilamentsTab";
 import { extractList } from "@/utils/extractList";
 import { formatCurrency } from "@/utils/format";
 import BulkImportModal, { downloadTemplateFile } from "@/components/admin/BulkImportModal";
 import { confirmDialog, alertDialog } from "@/store/useDialogStore";
 
-const TABS = ["Details", "Media", "Specs", "Options & values", "Price slabs", "Shipping"];
+const TABS = ["Details", "Media", "Specs", "Options & values", "Filaments", "Price slabs", "Shipping"];
 const PAGE_SIZE = 8;
 
 const STATUS_TONE = {
@@ -544,6 +545,9 @@ function ProductModal({ product: initialProduct, onClose }) {
             {tab === "Specs" && product && <SpecsTab productId={product._id} />}
             {tab === "Options & values" && product && (
                 <OptionsTab productId={product._id} />
+            )}
+            {tab === "Filaments" && product && (
+                <FilamentsTab productId={product._id} onClose={onClose} />
             )}
             {tab === "Price slabs" && product && (
                 <PriceSlabsTab productId={product._id} />

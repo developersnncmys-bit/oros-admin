@@ -16,6 +16,19 @@ import { extractList } from "@/utils/extractList";
 import { confirmDialog, alertDialog } from "@/store/useDialogStore";
 
 const OPTION_TYPES = ["SELECT", "TEXT", "COLOR", "FILE"];
+const DIMENSION_UNITS = ["mm", "cm", "in"];
+
+// Dimension inputs only make sense on a size-type option. Match loosely so
+// "Size", "Sizes", "Dimensions" all qualify without a dedicated option type.
+const isSizeOption = (option) => /size|dimension/i.test(option?.name || "");
+
+const formatDimensions = (val) => {
+    const parts = [val.length, val.width, val.height].filter(
+        (n) => n != null && n !== ""
+    );
+    if (!parts.length) return "";
+    return `${parts.join(" × ")} ${val.unit || "cm"}`;
+};
 
 export default function OptionsTab({ productId }) {
     const [options, setOptions] = useState([]);
@@ -100,11 +113,18 @@ export default function OptionsTab({ productId }) {
         const draft = newValue[optionId];
         if (!draft?.value?.trim()) return;
 
+        const toDim = (v) =>
+            v === undefined || v === "" || v === null ? null : Number(v);
+
         try {
             await createOptionValue(optionId, {
                 value: draft.value,
                 priceDelta: Number(draft.priceDelta) || 0,
-                priceMultiplier: Number(draft.priceMultiplier) || 1
+                priceMultiplier: Number(draft.priceMultiplier) || 1,
+                length: toDim(draft.length),
+                width: toDim(draft.width),
+                height: toDim(draft.height),
+                unit: draft.unit || "cm"
             });
             setNewValue((prev) => ({ ...prev, [optionId]: {} }));
             reload();
@@ -145,23 +165,31 @@ export default function OptionsTab({ productId }) {
                     </div>
 
                     <div className="space-y-2">
-                        {(valuesByOption[option._id] || []).map((val) => (
-                            <div
-                                key={val._id}
-                                className="flex items-center justify-between rounded-lg bg-bg px-3 py-2 text-sm"
-                            >
-                                <span className="font-medium text-text">{val.value}</span>
-                                <span className="text-text-muted">
-                                    +₹{val.priceDelta} · ×{val.priceMultiplier}
-                                </span>
-                                <button
-                                    onClick={() => handleDeleteValue(option._id, val._id)}
-                                    className="text-text-muted hover:text-red-500"
+                        {(valuesByOption[option._id] || []).map((val) => {
+                            const dims = isSizeOption(option) ? formatDimensions(val) : "";
+                            return (
+                                <div
+                                    key={val._id}
+                                    className="flex items-center justify-between gap-3 rounded-lg bg-bg px-3 py-2 text-sm"
                                 >
-                                    <Trash2 size={12} />
-                                </button>
-                            </div>
-                        ))}
+                                    <div className="min-w-0">
+                                        <p className="font-medium text-text">{val.value}</p>
+                                        {dims && (
+                                            <p className="text-xs text-text-muted">{dims}</p>
+                                        )}
+                                    </div>
+                                    <span className="shrink-0 text-text-muted">
+                                        +₹{val.priceDelta} · ×{val.priceMultiplier}
+                                    </span>
+                                    <button
+                                        onClick={() => handleDeleteValue(option._id, val._id)}
+                                        className="text-text-muted hover:text-red-500"
+                                    >
+                                        <Trash2 size={12} />
+                                    </button>
+                                </div>
+                            );
+                        })}
                     </div>
 
                     <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -216,6 +244,53 @@ export default function OptionsTab({ productId }) {
                             <Plus size={16} />
                         </button>
                     </div>
+
+                    {isSizeOption(option) && (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className="text-[11px] font-bold uppercase text-text-muted">
+                                Dimensions
+                            </span>
+                            {["length", "width", "height"].map((dim, i) => (
+                                <input
+                                    key={dim}
+                                    type="number"
+                                    min="0"
+                                    step="0.1"
+                                    placeholder={["L", "W", "H"][i]}
+                                    value={newValue[option._id]?.[dim] || ""}
+                                    onChange={(e) =>
+                                        setNewValue((prev) => ({
+                                            ...prev,
+                                            [option._id]: {
+                                                ...prev[option._id],
+                                                [dim]: e.target.value
+                                            }
+                                        }))
+                                    }
+                                    className={`${inputClass} w-16`}
+                                />
+                            ))}
+                            <select
+                                value={newValue[option._id]?.unit || "cm"}
+                                onChange={(e) =>
+                                    setNewValue((prev) => ({
+                                        ...prev,
+                                        [option._id]: {
+                                            ...prev[option._id],
+                                            unit: e.target.value
+                                        }
+                                    }))
+                                }
+                                className={`${inputClass} w-20`}
+                            >
+                                {DIMENSION_UNITS.map((u) => (
+                                    <option key={u} value={u}>
+                                        {u}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                 </div>
             ))}
 

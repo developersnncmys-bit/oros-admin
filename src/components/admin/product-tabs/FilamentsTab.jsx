@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { Plus, Trash2 } from "lucide-react";
 
 import { getFilaments } from "@/api/filament.api";
-import { getProductById, setProductFilaments } from "@/api/product.api";
+import {
+    getProductById,
+    setProductFilaments,
+    updateProduct
+} from "@/api/product.api";
 import { extractList } from "@/utils/extractList";
+import { showToast } from "@/store/useToastStore";
 
 export default function FilamentsTab({ productId, onClose }) {
     const [filaments, setFilaments] = useState([]);
@@ -13,7 +19,16 @@ export default function FilamentsTab({ productId, onClose }) {
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState("");
-    const [justSaved, setJustSaved] = useState(false);
+
+    // Dual-colour combination manager — only used when the product has
+    // allowDualColor set on it. combos is [{primary, secondary}] of
+    // FilamentColor ids; pairs are stored and treated as unordered.
+    const [allowDualColor, setAllowDualColor] = useState(false);
+    const [combos, setCombos] = useState([]);
+    const [newPrimary, setNewPrimary] = useState("");
+    const [newSecondary, setNewSecondary] = useState("");
+    const [combosSaving, setCombosSaving] = useState(false);
+    const [combosError, setCombosError] = useState("");
 
     useEffect(() => {
         let cancelled = false;
@@ -38,16 +53,28 @@ export default function FilamentsTab({ productId, onClose }) {
 
                 // The product payload returns full filament objects (populated),
                 // but we only need their ids for the checkbox state.
-                const current =
-                    productRes?.data?.product?.filaments ||
-                    productRes?.data?.filaments ||
-                    [];
+                const productDoc =
+                    productRes?.data?.product || productRes?.data || {};
+                const current = productDoc.filaments || [];
                 setSelected(
                     new Set(
                         current.map((f) =>
                             typeof f === "object" ? f._id : f
                         )
                     )
+                );
+                setAllowDualColor(!!productDoc.allowDualColor);
+                setCombos(
+                    (productDoc.allowedColorCombos || []).map((pair) => ({
+                        primary:
+                            typeof pair.primary === "object"
+                                ? pair.primary._id
+                                : pair.primary,
+                        secondary:
+                            typeof pair.secondary === "object"
+                                ? pair.secondary._id
+                                : pair.secondary
+                    }))
                 );
             } catch (err) {
                 if (!cancelled)
@@ -72,19 +99,137 @@ export default function FilamentsTab({ productId, onClose }) {
         });
     };
 
+    // Flat list of {id, name, hex, filamentName} across the currently-ticked
+    // filaments. Combos are only pickable from this set — the dropdowns
+    // narrow with the filament selection so admin can't define a pair whose
+    // colour isn't actually available on this product.
+    const availableColors = useMemo(() => {
+        const list = [];
+        filaments
+            .filter((f) => selected.has(f._id))
+            .forEach((f) => {
+                (f.colors || []).forEach((c) => {
+                    list.push({
+                        id: c._id,
+                        name: c.name,
+                        hex: c.hex,
+                        filamentId: f._id,
+                        filamentName: f.name
+                    });
+                });
+            });
+        return list;
+    }, [filaments, selected]);
+
+    // Dual-colour prints share a filament (you can't mix PLA Metallic and
+    // PLA Pro on one object), so once Primary is picked the Secondary list
+    // is narrowed to colours from the same filament. Clears Secondary when
+    // the Primary move breaks that invariant.
+    const primaryFilamentId = useMemo(() => {
+        if (!newPrimary) return null;
+        return (
+            availableColors.find((c) => c.id === newPrimary)?.filamentId ||
+            null
+        );
+    }, [availableColors, newPrimary]);
+
+    const secondaryChoices = useMemo(() => {
+        if (!primaryFilamentId) return availableColors;
+        return availableColors.filter(
+            (c) => c.filamentId === primaryFilamentId
+        );
+    }, [availableColors, primaryFilamentId]);
+
+    useEffect(() => {
+        if (!newSecondary || !primaryFilamentId) return;
+        const sec = availableColors.find((c) => c.id === newSecondary);
+        if (sec && sec.filamentId !== primaryFilamentId) {
+            setNewSecondary("");
+        }
+    }, [availableColors, newSecondary, primaryFilamentId]);
+
+    const colorById = useMemo(() => {
+        const map = new Map();
+        // include colours from every filament, not just selected ones, so
+        // existing combos that reference an unticked filament still render
+        // their swatch and name rather than appearing as a bare id.
+        filaments.forEach((f) =>
+            (f.colors || []).forEach((c) =>
+                map.set(c._id, {
+                    id: c._id,
+                    name: c.name,
+                    hex: c.hex,
+                    filamentName: f.name
+                })
+            )
+        );
+        return map;
+    }, [filaments]);
+
+    // directional: {A→B} and {B→A} are distinct pairs
+    const pairKey = (a, b) => `${a}|${b}`;
+    const existingPairKeys = new Set(
+        combos.map((p) => pairKey(p.primary, p.secondary))
+    );
+
+    const addPair = () => {
+        setCombosError("");
+        if (!newPrimary || !newSecondary) {
+            setCombosError("Pick both a Primary and a Secondary colour");
+            return;
+        }
+        if (newPrimary === newSecondary) {
+            setCombosError("Primary and Secondary must be different");
+            return;
+        }
+        if (existingPairKeys.has(pairKey(newPrimary, newSecondary))) {
+            setCombosError("That combination is already in the list");
+            return;
+        }
+        setCombos((prev) => [
+            ...prev,
+            { primary: newPrimary, secondary: newSecondary }
+        ]);
+        setNewPrimary("");
+        setNewSecondary("");
+    };
+
+    const removePair = (idx) => {
+        setCombos((prev) => prev.filter((_, i) => i !== idx));
+    };
+
+    const saveCombos = async () => {
+        setCombosSaving(true);
+        setCombosError("");
+        try {
+            await updateProduct(productId, { allowedColorCombos: combos });
+            showToast("Colour combinations saved");
+            // stay on the tab — the admin confirms via toast and clicks
+            // Done at the bottom of the modal when they're finished
+        } catch (err) {
+            setCombosError(err.message || "Failed to save combinations");
+            showToast(err.message || "Failed to save combinations", {
+                tone: "error"
+            });
+        } finally {
+            setCombosSaving(false);
+        }
+    };
+
     const handleSave = async () => {
         setIsSaving(true);
         setError("");
 
         try {
             await setProductFilaments(productId, Array.from(selected));
-            setJustSaved(true);
-            // Let the "saved" banner flash briefly, then close the modal.
-            setTimeout(() => {
-                onClose?.();
-            }, 900);
+            showToast("Filaments saved");
+            // stay on the tab so the admin can scroll down and set the
+            // Colour combinations next
         } catch (err) {
             setError(err.message || "Failed to save");
+            showToast(err.message || "Failed to save filaments", {
+                tone: "error"
+            });
         } finally {
             setIsSaving(false);
         }
@@ -205,12 +350,6 @@ export default function FilamentsTab({ productId, onClose }) {
                 </p>
             )}
 
-            {justSaved && (
-                <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
-                    ✓ Filaments saved
-                </p>
-            )}
-
             <div className="flex items-center justify-between gap-3">
                 <p className="text-xs text-text-muted">
                     {selected.size} filament{selected.size === 1 ? "" : "s"}{" "}
@@ -218,12 +357,146 @@ export default function FilamentsTab({ productId, onClose }) {
                 </p>
                 <button
                     onClick={handleSave}
-                    disabled={isSaving || justSaved}
+                    disabled={isSaving}
                     className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-accent-dark disabled:opacity-70"
                 >
-                    {isSaving ? "Saving..." : justSaved ? "Saved" : "Save filaments"}
+                    {isSaving ? "Saving..." : "Save filaments"}
                 </button>
             </div>
+
+            {allowDualColor && (
+                <div className="mt-4 rounded-xl border border-border p-4">
+                    <div className="mb-3">
+                        <p className="text-sm font-bold text-text">
+                            Colour combinations
+                        </p>
+                        <p className="mt-0.5 text-xs text-text-muted">
+                            Define the exact Primary + Secondary pairs
+                            customers can pick. Leave empty to allow any pair.
+                            Pairs are directional — the first colour is the
+                            Primary slot on the storefront, the second is the
+                            Secondary slot.
+                        </p>
+                    </div>
+
+                    {combos.length > 0 ? (
+                        <ul className="mb-3 space-y-1.5">
+                            {combos.map((pair, idx) => {
+                                const a = colorById.get(pair.primary);
+                                const b = colorById.get(pair.secondary);
+                                return (
+                                    <li
+                                        key={`${pair.primary}-${pair.secondary}-${idx}`}
+                                        className="flex items-center justify-between gap-3 rounded-lg bg-bg px-3 py-2 text-sm"
+                                    >
+                                        <div className="flex min-w-0 items-center gap-2">
+                                            <span className="flex -space-x-1">
+                                                <span
+                                                    className="h-4 w-4 rounded-full border border-card"
+                                                    style={{
+                                                        background:
+                                                            a?.hex || "#ccc"
+                                                    }}
+                                                />
+                                                <span
+                                                    className="h-4 w-4 rounded-full border border-card"
+                                                    style={{
+                                                        background:
+                                                            b?.hex || "#ccc"
+                                                    }}
+                                                />
+                                            </span>
+                                            <span className="truncate text-text">
+                                                {a?.name || "Unknown"} +{" "}
+                                                {b?.name || "Unknown"}
+                                            </span>
+                                        </div>
+                                        <button
+                                            onClick={() => removePair(idx)}
+                                            className="text-text-muted hover:text-red-500"
+                                            aria-label="Remove pair"
+                                        >
+                                            <Trash2 size={13} />
+                                        </button>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    ) : (
+                        <p className="mb-3 text-xs italic text-text-muted">
+                            No combinations defined — all pairs allowed.
+                        </p>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-2">
+                        <select
+                            value={newPrimary}
+                            onChange={(e) => setNewPrimary(e.target.value)}
+                            className="min-w-0 flex-1 rounded-lg border border-border bg-card px-2 py-2 text-sm"
+                        >
+                            <option value="">Primary colour…</option>
+                            {availableColors.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                    {c.name} · {c.filamentName}
+                                </option>
+                            ))}
+                        </select>
+                        <select
+                            value={newSecondary}
+                            onChange={(e) => setNewSecondary(e.target.value)}
+                            disabled={!newPrimary}
+                            className="min-w-0 flex-1 rounded-lg border border-border bg-card px-2 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <option value="">
+                                {newPrimary
+                                    ? "Secondary colour…"
+                                    : "Pick a Primary first"}
+                            </option>
+                            {secondaryChoices
+                                .filter((c) => c.id !== newPrimary)
+                                .map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                        {c.name} · {c.filamentName}
+                                    </option>
+                                ))}
+                        </select>
+                        <button
+                            onClick={addPair}
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-white"
+                            aria-label="Add pair"
+                        >
+                            <Plus size={16} />
+                        </button>
+                    </div>
+
+                    {availableColors.length === 0 && (
+                        <p className="mt-2 text-xs italic text-text-muted">
+                            Tick at least one filament above to pick colours
+                            from.
+                        </p>
+                    )}
+
+                    {combosError && (
+                        <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+                            {combosError}
+                        </p>
+                    )}
+
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                        <p className="text-xs text-text-muted">
+                            {combos.length} combination
+                            {combos.length === 1 ? "" : "s"}
+                        </p>
+                        <button
+                            onClick={saveCombos}
+                            disabled={combosSaving}
+                            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-dark disabled:opacity-70"
+                        >
+                            {combosSaving ? "Saving..." : "Save combinations"}
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

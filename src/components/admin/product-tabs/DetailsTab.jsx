@@ -8,6 +8,7 @@ import { createProduct, updateProduct } from "@/api/product.api";
 import FormField, { inputClass } from "@/components/ui/FormField";
 import { extractList } from "@/utils/extractList";
 import { slugify } from "@/utils/format";
+import { showToast } from "@/store/useToastStore";
 
 const STATUS_OPTIONS = ["DRAFT", "PUBLISHED", "ARCHIVED"];
 
@@ -36,7 +37,9 @@ export default function DetailsTab({ product, onSaved }) {
         status: product?.status || "DRAFT",
         shortDescription: product?.shortDescription || "",
         longDescription: product?.longDescription || "",
-        isCustomisable: product?.isCustomisable || false
+        isCustomisable: product?.isCustomisable || false,
+        allowDualColor: product?.allowDualColor || false,
+        dualColorSurcharge: product?.dualColorSurcharge ?? 0
     });
 
     useEffect(() => {
@@ -92,7 +95,9 @@ export default function DetailsTab({ product, onSaved }) {
             status: form.status,
             shortDescription: form.shortDescription,
             longDescription: form.longDescription,
-            isCustomisable: form.isCustomisable
+            isCustomisable: form.isCustomisable,
+            allowDualColor: form.allowDualColor,
+            dualColorSurcharge: Number(form.dualColorSurcharge) || 0
         };
 
         try {
@@ -100,9 +105,13 @@ export default function DetailsTab({ product, onSaved }) {
                 ? await updateProduct(product._id, payload)
                 : await createProduct(payload);
 
+            showToast(product ? "Product details saved" : "Product created");
             onSaved(res?.data?.product || res?.data);
         } catch (err) {
             setError(err.message || "Failed to save product");
+            showToast(err.message || "Failed to save product", {
+                tone: "error"
+            });
         } finally {
             setIsSaving(false);
         }
@@ -295,6 +304,40 @@ export default function DetailsTab({ product, onSaved }) {
                 />
                 Customisable
             </label>
+
+            <div className="rounded-lg border border-border p-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-text">
+                    <input
+                        type="checkbox"
+                        checked={form.allowDualColor}
+                        onChange={(e) =>
+                            setForm((prev) => ({
+                                ...prev,
+                                allowDualColor: e.target.checked
+                            }))
+                        }
+                    />
+                    Allow dual-colour (customer picks Primary + Secondary)
+                </label>
+                {form.allowDualColor && (
+                    <div className="mt-3">
+                        <FormField label="Dual-colour surcharge (₹)">
+                            <input
+                                type="number"
+                                min="0"
+                                className={inputClass}
+                                value={form.dualColorSurcharge}
+                                onChange={(e) =>
+                                    setForm((prev) => ({
+                                        ...prev,
+                                        dualColorSurcharge: e.target.value
+                                    }))
+                                }
+                            />
+                        </FormField>
+                    </div>
+                )}
+            </div>
 
             {error && (
                 <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">

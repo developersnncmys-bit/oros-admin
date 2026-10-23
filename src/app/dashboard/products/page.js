@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, Pencil, Trash2, Eye, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, ChevronLeft, ChevronRight, Search, X, ImageOff } from "lucide-react";
 
 import { getProducts, getProductById, deleteProduct } from "@/api/product.api";
 import { getCategories } from "@/api/category.api";
@@ -38,6 +38,7 @@ export default function ProductsPage() {
     const [error, setError] = useState("");
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState(null);
+    const [viewingProductId, setViewingProductId] = useState(null);
     const [isBulkOpen, setIsBulkOpen] = useState(false);
     const [page, setPage] = useState(1);
     // From the API's pagination block; 0 until the first page loads
@@ -185,6 +186,17 @@ export default function ProductsPage() {
     };
 
     const openEdit = (product) => {
+        setEditingProduct(product);
+        setIsModalOpen(true);
+    };
+
+    const openView = (product) => {
+        setViewingProductId(product._id);
+    };
+
+    // Fired by the view modal's "Edit this product" button — swap preview for editor
+    const promoteViewToEdit = (product) => {
+        setViewingProductId(null);
         setEditingProduct(product);
         setIsModalOpen(true);
     };
@@ -351,7 +363,7 @@ export default function ProductsPage() {
 
                                 <div className="mt-3 flex justify-end gap-2 border-t border-border pt-3">
                                     <button
-                                        onClick={() => openEdit(product)}
+                                        onClick={() => openView(product)}
                                         title="View"
                                         className="rounded-lg border border-border p-2 text-text-muted hover:text-text"
                                     >
@@ -416,7 +428,7 @@ export default function ProductsPage() {
                                             <td className="px-5 py-3">
                                                 <div className="flex justify-end gap-2">
                                                     <button
-                                                        onClick={() => openEdit(product)}
+                                                        onClick={() => openView(product)}
                                                         title="View"
                                                         className="rounded-lg border border-border p-2 text-text-muted hover:text-text"
                                                     >
@@ -494,6 +506,14 @@ export default function ProductsPage() {
                     }}
                 />
             )}
+
+            {viewingProductId && (
+                <ProductViewModal
+                    productId={viewingProductId}
+                    onClose={() => setViewingProductId(null)}
+                    onEdit={promoteViewToEdit}
+                />
+            )}
         </div>
     );
 }
@@ -534,9 +554,10 @@ function ProductModal({ product: initialProduct, onClose }) {
                     product={product}
                     onSaved={(saved) => {
                         setProduct(saved);
-                        if (!initialProduct) {
-                            setTab("Media");
-                        }
+                        // Advance to Media regardless of create vs edit —
+                        // the toast confirms the save and the admin keeps
+                        // moving through the tabs in order.
+                        setTab("Media");
                     }}
                 />
             )}
@@ -563,5 +584,203 @@ function ProductModal({ product: initialProduct, onClose }) {
                 </button>
             </div>
         </Modal>
+    );
+}
+
+function ProductViewModal({ productId, onClose, onEdit }) {
+    const [data, setData] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState("");
+
+    useEffect(() => {
+        let cancelled = false;
+
+        (async () => {
+            try {
+                const res = await getProductById(productId);
+                if (!cancelled) setData(res?.data || null);
+            } catch (err) {
+                if (!cancelled) setError(err.message || "Failed to load product");
+            } finally {
+                if (!cancelled) setIsLoading(false);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [productId]);
+
+    const product = data?.product;
+    const images = (data?.media || [])
+        .filter((m) => m.type !== "VIDEO" && m.url)
+        .sort((a, b) => (b.isPrimary ? 1 : 0) - (a.isPrimary ? 1 : 0));
+
+    // Stock across every colour of every linked filament; the storefront's
+    // "in stock" count is the same roll-up.
+    const totalStock = (data?.filaments || []).reduce(
+        (sum, f) => sum + (f.colors || []).reduce((s, c) => s + (c.stock || 0), 0),
+        0
+    );
+
+    const sizeOptions = (data?.options || []).filter((o) =>
+        /size|dimension/i.test(o.name || "")
+    );
+    const formatDims = (v) => {
+        const parts = [v.length, v.width, v.height].filter(
+            (n) => n != null && n !== ""
+        );
+        return parts.length ? `${parts.join(" × ")} ${v.unit || "cm"}` : "";
+    };
+
+
+    return (
+        <Modal
+            title={product?.name || "Product"}
+            onClose={onClose}
+            maxWidth="max-w-3xl"
+        >
+            {isLoading && (
+                <p className="py-10 text-center text-sm text-text-muted">Loading...</p>
+            )}
+
+            {!isLoading && error && (
+                <p className="py-10 text-center text-sm text-red-500">{error}</p>
+            )}
+
+            {!isLoading && !error && product && (
+                <div className="space-y-5">
+                    <p className="-mt-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                        {product.sku}
+                    </p>
+
+                    {images.length > 0 ? (
+                        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
+                            {images.map((m) => (
+                                <div
+                                    key={m._id || m.url}
+                                    className="aspect-square overflow-hidden rounded-lg border border-border bg-bg"
+                                >
+                                    <img
+                                        src={m.url}
+                                        alt={product.name}
+                                        className="h-full w-full object-cover"
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-border text-text-muted">
+                            <ImageOff size={24} />
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                        <ViewStat label="Status">
+                            <Badge tone={STATUS_TONE[product.status] || "neutral"}>
+                                {product.status}
+                            </Badge>
+                        </ViewStat>
+                        <ViewStat label="Selling price">
+                            <p className="text-lg font-bold text-text">
+                                {formatCurrency(product.basePrice)}
+                            </p>
+                        </ViewStat>
+                        <ViewStat label="Stock">
+                            <p
+                                className={`text-lg font-bold ${
+                                    totalStock > 0 ? "text-text" : "text-red-500"
+                                }`}
+                            >
+                                {totalStock} in stock
+                            </p>
+                        </ViewStat>
+                        <ViewStat label="Lead time">
+                            <p className="text-lg font-bold text-text">
+                                {product.leadTimeDays ?? "—"}
+                                <span className="ml-1 text-xs font-normal text-text-muted">
+                                    days
+                                </span>
+                            </p>
+                        </ViewStat>
+                    </div>
+
+                    {product.shortDescription && (
+                        <div>
+                            <p className="mb-1 text-xs font-bold uppercase text-text-muted">
+                                Short description
+                            </p>
+                            <p className="text-sm text-text">{product.shortDescription}</p>
+                        </div>
+                    )}
+
+                    {product.longDescription && (
+                        <div>
+                            <p className="mb-1 text-xs font-bold uppercase text-text-muted">
+                                Description
+                            </p>
+                            <p className="whitespace-pre-wrap text-sm text-text">
+                                {product.longDescription}
+                            </p>
+                        </div>
+                    )}
+
+                    {sizeOptions.map((opt) => (
+                        <div key={opt._id}>
+                            <p className="mb-1.5 text-xs font-bold uppercase text-text-muted">
+                                {opt.name}
+                            </p>
+                            <div className="divide-y divide-border rounded-xl border border-border">
+                                {(opt.values || []).map((v) => {
+                                    const dims = formatDims(v);
+                                    return (
+                                        <div
+                                            key={v._id}
+                                            className="flex items-center justify-between px-3 py-2 text-sm"
+                                        >
+                                            <span className="font-semibold text-text">
+                                                {v.value}
+                                            </span>
+                                            <span className="text-text-muted">
+                                                {dims || "— no dimensions —"}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-4">
+                <button
+                    onClick={onClose}
+                    className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-text hover:bg-bg"
+                >
+                    Close
+                </button>
+                {product && (
+                    <button
+                        onClick={() => onEdit(product)}
+                        className="flex items-center gap-2 rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-white transition hover:bg-accent-dark"
+                    >
+                        <Pencil size={14} />
+                        Edit this product
+                    </button>
+                )}
+            </div>
+        </Modal>
+    );
+}
+
+function ViewStat({ label, children }) {
+    return (
+        <div className="rounded-xl border border-border bg-bg px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-text-muted">
+                {label}
+            </p>
+            <div className="mt-1">{children}</div>
+        </div>
     );
 }

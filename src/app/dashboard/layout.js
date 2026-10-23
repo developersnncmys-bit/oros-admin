@@ -11,6 +11,7 @@ import { useAuthStore, ADMIN_ROLES } from "@/store/useAuthStore";
 import { useNotificationStore } from "@/store/useNotificationStore";
 import { getSocket, disconnectSocket } from "@/lib/socket";
 import DialogHost from "@/components/ui/DialogHost";
+import ToastHost from "@/components/ui/ToastHost";
 
 export default function DashboardLayout({ children }) {
     const router = useRouter();
@@ -75,6 +76,7 @@ export default function DashboardLayout({ children }) {
 
             <NotificationPanel />
             <DialogHost />
+            <ToastHost />
         </div>
     );
 }

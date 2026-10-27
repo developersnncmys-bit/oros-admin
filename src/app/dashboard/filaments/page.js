@@ -178,6 +178,27 @@ const EMPTY_COLOR = {
     stock: 0
 };
 
+// Group filaments by their `type` so PLA Pro / PLA Matte / PLA Silk / …
+// all collapse under one PLA heading. PLA is pinned first; everything
+// else follows in alphabetical order.
+function groupByType(filaments) {
+    const map = new Map();
+    for (const filament of filaments) {
+        const key = filament.type?.trim() || "Other";
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(filament);
+    }
+    return [...map.entries()]
+        .map(([type, items]) => ({ type, items }))
+        .sort((a, b) => {
+            if (a.type === "PLA") return -1;
+            if (b.type === "PLA") return 1;
+            if (a.type === "Other") return 1;
+            if (b.type === "Other") return -1;
+            return a.type.localeCompare(b.type);
+        });
+}
+
 export default function FilamentsPage() {
     const [filaments, setFilaments] = useState([]);
     const [colorFamilies, setColorFamilies] = useState([]);
@@ -301,55 +322,69 @@ export default function FilamentsPage() {
                 </div>
             )}
 
-            <div className="space-y-3">
-                {filaments.map((filament) => (
-                    <FilamentCard
-                        key={filament._id}
-                        filament={filament}
-                        onEdit={() =>
-                            setFilamentModal({
-                                mode: "edit",
-                                id: filament._id,
-                                form: {
-                                    name: filament.name,
-                                    type: filament.type,
-                                    colorFamily:
-                                        filament.colorFamily?._id ||
-                                        filament.colorFamily ||
-                                        "",
-                                    finish: filament.finish || "",
-                                    priceDelta: filament.priceDelta ?? 0,
-                                    priceMultiplier: filament.priceMultiplier ?? 1,
-                                    isActive: filament.isActive !== false
-                                }
-                            })
-                        }
-                        onDelete={() => handleDeleteFilament(filament)}
-                        onAddColor={() =>
-                            setColorModal({
-                                mode: "create",
-                                filamentId: filament._id,
-                                filamentName: filament.name,
-                                form: EMPTY_COLOR
-                            })
-                        }
-                        onEditColor={(color) =>
-                            setColorModal({
-                                mode: "edit",
-                                id: color._id,
-                                filamentId: filament._id,
-                                filamentName: filament.name,
-                                form: {
-                                    name: color.name,
-                                    hex: color.hex,
-                                    hexSecondary: color.hexSecondary || "",
-                                    hexTertiary: color.hexTertiary || "",
-                                    stock: color.stock ?? 0
-                                }
-                            })
-                        }
-                        onDeleteColor={handleDeleteColor}
-                    />
+            <div className="space-y-6">
+                {groupByType(filaments).map(({ type, items }) => (
+                    <section key={type} className="space-y-3">
+                        <div className="flex items-baseline gap-2 border-b border-border pb-1.5">
+                            <h2 className="text-base font-bold uppercase tracking-wide text-text">
+                                {type}
+                            </h2>
+                            <span className="text-xs text-text-muted">
+                                {items.length} {items.length === 1 ? "filament" : "filaments"}
+                            </span>
+                        </div>
+                        <div className="space-y-3">
+                            {items.map((filament) => (
+                                <FilamentCard
+                                    key={filament._id}
+                                    filament={filament}
+                                    onEdit={() =>
+                                        setFilamentModal({
+                                            mode: "edit",
+                                            id: filament._id,
+                                            form: {
+                                                name: filament.name,
+                                                type: filament.type,
+                                                colorFamily:
+                                                    filament.colorFamily?._id ||
+                                                    filament.colorFamily ||
+                                                    "",
+                                                finish: filament.finish || "",
+                                                priceDelta: filament.priceDelta ?? 0,
+                                                priceMultiplier: filament.priceMultiplier ?? 1,
+                                                isActive: filament.isActive !== false
+                                            }
+                                        })
+                                    }
+                                    onDelete={() => handleDeleteFilament(filament)}
+                                    onAddColor={() =>
+                                        setColorModal({
+                                            mode: "create",
+                                            filamentId: filament._id,
+                                            filamentName: filament.name,
+                                            form: EMPTY_COLOR
+                                        })
+                                    }
+                                    onEditColor={(color) =>
+                                        setColorModal({
+                                            mode: "edit",
+                                            id: color._id,
+                                            filamentId: filament._id,
+                                            filamentName: filament.name,
+                                            form: {
+                                                name: color.name,
+                                                hex: color.hex,
+                                                hexSecondary: color.hexSecondary || "",
+                                                hexTertiary: color.hexTertiary || "",
+                                                stock: color.stock ?? 0
+                                            }
+                                        })
+                                    }
+                                    onDeleteColor={handleDeleteColor}
+                                />
+                            ))}
+                        </div>
+                    </section>
                 ))}
             </div>
 

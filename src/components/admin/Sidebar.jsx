@@ -24,13 +24,13 @@ export default function Sidebar({ open, onClose }) {
                     open ? "translate-x-0" : "-translate-x-full"
                 }`}
             >
-                <div className="flex h-[64px] items-center gap-2.5 border-b border-border px-5">
+                <div className="flex h-20 items-center gap-2.5 border-b border-border bg-primary px-5">
                     <img
-                        src="/logo/Orosent-20.svg"
+                        src="/logo/oros-new-logo.png"
                         alt="OROS"
-                        className="h-9 w-9 shrink-0 rounded-lg object-contain"
+                        className="h-16 w-16 shrink-0 rounded-lg object-contain"
                     />
-                    <span className="text-lg font-extrabold tracking-tight text-primary">
+                    <span className="text-lg font-extrabold tracking-tight text-white">
                         Admin
                     </span>
                 </div>

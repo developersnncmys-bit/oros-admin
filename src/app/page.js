@@ -149,16 +149,14 @@ export default function LoginPage() {
                 />
 
                 <div className="relative z-10 flex flex-col items-center text-center">
-                    <div className="rounded-2xl bg-white p-5">
-                        <img
-                            src="/logo/Orosent-20.svg"
-                            alt="OROS"
-                            className="h-20 w-20 object-contain"
-                        />
-                    </div>
+                    <img
+                        src="/logo/oros-footer-logo.png"
+                        alt="OROS"
+                        className="h-46 w-46 object-contain"
+                    />
 
                     <h1 className="mt-8 max-w-lg text-5xl font-extrabold leading-tight tracking-tight">
-                        One filament. <span className="text-accent">Every shape.</span>
+                        Every Shape. <span className="text-accent">Every shade.</span>
                     </h1>
 
                     <p className="mt-4 max-w-sm text-base leading-6 text-white/70">

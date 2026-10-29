@@ -36,7 +36,7 @@ const EXAMPLE_COLUMNS = [
     },
     {
         key: "price_slabs",
-        value: '[{"minQty":1,"maxQty":9,"unitPrice":499},{"minQty":10,"maxQty":49,"unitPrice":450}]',
+        value: '[{"minQty":25,"maxQty":49,"discountPercent":5},{"minQty":50,"maxQty":null,"discountPercent":10}]',
         note: "JSON array"
     }
 ];

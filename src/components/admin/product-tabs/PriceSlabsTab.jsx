@@ -14,7 +14,7 @@ import { confirmDialog, alertDialog } from "@/store/useDialogStore";
 
 export default function PriceSlabsTab({ productId }) {
     const [slabs, setSlabs] = useState([]);
-    const [form, setForm] = useState({ minQty: "", maxQty: "", unitPrice: "" });
+    const [form, setForm] = useState({ minQty: "", maxQty: "", discountPercent: "" });
     const [error, setError] = useState("");
 
     const [refreshKey, setRefreshKey] = useState(0);
@@ -44,7 +44,7 @@ export default function PriceSlabsTab({ productId }) {
     }, [productId, refreshKey]);
 
     const handleAdd = async () => {
-        if (!form.minQty || !form.unitPrice) return;
+        if (!form.minQty || !form.discountPercent) return;
 
         setError("");
 
@@ -52,9 +52,9 @@ export default function PriceSlabsTab({ productId }) {
             await createPriceSlab(productId, {
                 minQty: Number(form.minQty),
                 maxQty: form.maxQty ? Number(form.maxQty) : null,
-                unitPrice: Number(form.unitPrice)
+                discountPercent: Number(form.discountPercent)
             });
-            setForm({ minQty: "", maxQty: "", unitPrice: "" });
+            setForm({ minQty: "", maxQty: "", discountPercent: "" });
             reload();
         } catch (err) {
             setError(err.message || "Failed to add price slab");
@@ -82,7 +82,7 @@ export default function PriceSlabsTab({ productId }) {
                     <span className="text-text">
                         {slab.minQty} – {slab.maxQty ?? "∞"} units
                     </span>
-                    <span className="font-semibold text-text">₹{slab.unitPrice}</span>
+                    <span className="font-semibold text-text">{slab.discountPercent}% off</span>
                     <button
                         onClick={() => handleDelete(slab._id)}
                         className="text-text-muted hover:text-red-500"
@@ -109,10 +109,12 @@ export default function PriceSlabsTab({ productId }) {
                 />
                 <input
                     type="number"
-                    placeholder="Unit price"
-                    value={form.unitPrice}
+                    min="0"
+                    max="99"
+                    placeholder="Discount %"
+                    value={form.discountPercent}
                     onChange={(e) =>
-                        setForm((p) => ({ ...p, unitPrice: e.target.value }))
+                        setForm((p) => ({ ...p, discountPercent: e.target.value }))
                     }
                     className={`${inputClass} min-w-0 flex-1`}
                 />

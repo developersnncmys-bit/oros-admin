@@ -750,7 +750,7 @@ function QuotationModal({ quotation, onClose, onSaved }) {
                     </FormField>
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <FormField label="Sub total">
                         <input
                             type="number"
@@ -783,6 +783,20 @@ function QuotationModal({ quotation, onClose, onSaved }) {
                             className={inputClass}
                             value={shipping}
                             onChange={(e) => setShipping(e.target.value)}
+                        />
+                    </FormField>
+
+                    <FormField label="Total">
+                        <input
+                            type="text"
+                            readOnly
+                            className={`${inputClass} cursor-not-allowed opacity-70`}
+                            value={formatCurrency(
+                                (Number(subTotal) || 0) +
+                                    (Number(tax) || 0) +
+                                    (Number(shipping) || 0)
+                            )}
+                            onChange={() => {}}
                         />
                     </FormField>
                 </div>

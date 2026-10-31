@@ -5,7 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, FileText } from "lucide-react";
 
-import { getAdminOrders, updateOrderStatus } from "@/api/order.api";
+import {
+    getAdminOrders,
+    updateOrderStatus,
+    retryShipmentFulfilment,
+    schedulePickup
+} from "@/api/order.api";
 import Modal from "@/components/ui/Modal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Badge from "@/components/ui/Badge";
@@ -107,6 +112,10 @@ export default function OrdersView({
     // Status change waiting for the admin to confirm: { order, status }
     const [pendingStatus, setPendingStatus] = useState(null);
     const [totalPages, setTotalPages] = useState(1);
+    // Which shipment-action button is currently in-flight on the detail
+    // modal — "retry" or "pickup". Keeps both buttons from being clicked
+    // mid-request and lets us show per-button loading copy.
+    const [shipmentBusy, setShipmentBusy] = useState(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -198,6 +207,63 @@ export default function OrdersView({
         }
     };
 
+    // Merge a fresh order from the server into both the list and the
+    // currently-open detail modal so the shipment panel re-renders
+    // immediately after a retry/pickup click.
+    const mergeOrderUpdate = (next) => {
+        if (!next?._id) return;
+        setOrders((prev) =>
+            prev.map((o) =>
+                o._id === next._id ? { ...o, ...next } : o
+            )
+        );
+        setViewing((cur) =>
+            cur && cur._id === next._id ? { ...cur, ...next } : cur
+        );
+    };
+
+    const handleRetryShipment = async (order) => {
+        setShipmentBusy("retry");
+        try {
+            const res = await retryShipmentFulfilment(order._id);
+            mergeOrderUpdate(res?.data?.order);
+            alertDialog(
+                res?.success === false
+                    ? res.message || "Shiprocket fulfilment failed"
+                    : "Shiprocket fulfilment succeeded"
+            );
+        } catch (err) {
+            alertDialog(err.message || "Shiprocket retry failed");
+        } finally {
+            setShipmentBusy(null);
+        }
+    };
+
+    const handleSchedulePickup = async (order) => {
+        setShipmentBusy("pickup");
+        try {
+            const res = await schedulePickup(order._id);
+            // Pickup endpoint returns { pickupStatus, pickupScheduledFor }
+            // under data — merge those onto the order's shipping subdoc so
+            // the UI picks up the new state without a reload.
+            const nextShipping = {
+                ...(order.shipping || {}),
+                pickupStatus:
+                    res?.data?.pickupStatus ||
+                    order.shipping?.pickupStatus,
+                pickupScheduledFor:
+                    res?.data?.pickupScheduledFor ||
+                    order.shipping?.pickupScheduledFor
+            };
+            mergeOrderUpdate({ _id: order._id, shipping: nextShipping });
+            alertDialog("Pickup scheduled with Shiprocket");
+        } catch (err) {
+            alertDialog(err.message || "Could not schedule pickup");
+        } finally {
+            setShipmentBusy(null);
+        }
+    };
+
     const orderItems = (order) => order.items || order.orderItems || [];
 
     const itemCount = (order) => orderItems(order).length;
@@ -205,6 +271,44 @@ export default function OrdersView({
     const itemName = (item) => item.nameSnapshot || item.product?.name || "Product";
 
     const itemNames = (order) => orderItems(order).map(itemName).join(", ");
+
+    // Any line with a non-empty text or a logo URL counts as personalised —
+    // mirrors how the order-detail modal decides whether to render the
+    // Customisation block.
+    const hasPersonalisation = (order) =>
+        orderItems(order).some((item) => {
+            const p = item?.personalisation;
+            if (!p || typeof p !== "object") return false;
+            const text =
+                typeof p.text === "string" ? p.text.trim() : "";
+            return Boolean(text) || Boolean(p.logo?.url);
+        });
+
+    // Compact chip shown on each order row. Only renders when the order
+    // has reached a stage where fulfilment matters — payment pending or
+    // cancelled orders stay quiet.
+    const shipmentChip = (order) => {
+        if (order.payment?.status !== "PAID") return null;
+        if (order.status === "CANCELLED") return null;
+
+        const s = order.shipping || {};
+        if (s.error) {
+            return { tone: "danger", label: "FULFILMENT ERROR" };
+        }
+        if (!s.awbCode) {
+            return { tone: "warning", label: "AWB PENDING" };
+        }
+        if (s.lastShipmentStatus) {
+            return {
+                tone: "primary",
+                label: s.lastShipmentStatus.toUpperCase()
+            };
+        }
+        if (!s.pickupStatus) {
+            return { tone: "warning", label: "PICKUP PENDING" };
+        }
+        return { tone: "primary", label: "AWB READY" };
+    };
 
     const pageRows = filtered;
 
@@ -367,10 +471,27 @@ export default function OrdersView({
                                         <p className="text-xs font-bold uppercase text-text-muted">
                                             Items · Total
                                         </p>
-                                        <p className="font-semibold text-text">
-                                            {itemCount(order)} items ·{" "}
-                                            {formatCurrency(order.pricing?.total)}
-                                        </p>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <p className="font-semibold text-text">
+                                                {itemCount(order)} items ·{" "}
+                                                {formatCurrency(order.pricing?.total)}
+                                            </p>
+                                            {hasPersonalisation(order) && (
+                                                <Badge tone="accent">
+                                                    <span className="font-bold uppercase tracking-wide">
+                                                        Custom
+                                                    </span>
+                                                </Badge>
+                                            )}
+                                            {(() => {
+                                                const chip = shipmentChip(order);
+                                                return chip ? (
+                                                    <Badge tone={chip.tone}>
+                                                        {chip.label}
+                                                    </Badge>
+                                                ) : null;
+                                            })()}
+                                        </div>
                                     </div>
                                     {itemCount(order) > 0 && (
                                         <div className="col-span-2">
@@ -496,7 +617,25 @@ export default function OrdersView({
                                                 </p>
                                             </td>
                                             <td className="max-w-56 px-5 py-3 text-text">
-                                                <p>{itemCount(order)}</p>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <p>{itemCount(order)}</p>
+                                                    {hasPersonalisation(order) && (
+                                                        <Badge tone="accent">
+                                                            <span className="font-bold uppercase tracking-wide">
+                                                                Custom
+                                                            </span>
+                                                        </Badge>
+                                                    )}
+                                                    {(() => {
+                                                        const chip =
+                                                            shipmentChip(order);
+                                                        return chip ? (
+                                                            <Badge tone={chip.tone}>
+                                                                {chip.label}
+                                                            </Badge>
+                                                        ) : null;
+                                                    })()}
+                                                </div>
                                                 {itemCount(order) > 0 && (
                                                     <p
                                                         className="truncate text-xs text-text-muted"
@@ -819,6 +958,15 @@ export default function OrdersView({
                             </div>
                         )}
 
+                        <ShipmentPanel
+                            order={viewing}
+                            busy={shipmentBusy}
+                            onRetry={() => handleRetryShipment(viewing)}
+                            onSchedulePickup={() =>
+                                handleSchedulePickup(viewing)
+                            }
+                        />
+
                         <div className="grid grid-cols-2 gap-3 rounded-xl bg-bg p-4">
                             <div>
                                 <p className="text-xs font-bold uppercase text-text-muted">
@@ -856,6 +1004,187 @@ export default function OrdersView({
                     </div>
                 </Modal>
             )}
+        </div>
+    );
+}
+
+
+// Shiprocket-side detail shown inside the order detail modal: courier,
+// AWB, label/invoice links, pickup state, sync timestamps, plus the two
+// admin action buttons (retry fulfilment / schedule pickup).
+function ShipmentPanel({ order, busy, onRetry, onSchedulePickup }) {
+    const shipping = order?.shipping || {};
+    const hasShipment = Boolean(
+        shipping.shiprocketOrderId ||
+            shipping.awbCode ||
+            shipping.shipmentId ||
+            shipping.error
+    );
+
+    // Payment hasn't been captured yet — nothing to fulfil.
+    if (order?.payment?.status !== "PAID" && !hasShipment) {
+        return null;
+    }
+
+    const canRetry = Boolean(shipping.error || !shipping.awbCode);
+    const canSchedulePickup = Boolean(
+        shipping.shipmentId &&
+            !["SCHEDULED", "GENERATED", "PICKED_UP"].includes(
+                String(shipping.pickupStatus || "").toUpperCase()
+            )
+    );
+
+    return (
+        <div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-bold uppercase text-text-muted">
+                    Shipment
+                </p>
+                <div className="flex flex-wrap gap-2">
+                    {canRetry && (
+                        <button
+                            onClick={onRetry}
+                            disabled={busy !== null}
+                            className="rounded-lg border border-accent px-3 py-1.5 text-xs font-bold text-accent transition-colors hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            {busy === "retry"
+                                ? "Retrying…"
+                                : shipping.error
+                                    ? "Retry fulfilment"
+                                    : "Create shipment"}
+                        </button>
+                    )}
+                    {canSchedulePickup && (
+                        <button
+                            onClick={onSchedulePickup}
+                            disabled={busy !== null}
+                            className="rounded-lg border border-primary px-3 py-1.5 text-xs font-bold text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            {busy === "pickup"
+                                ? "Scheduling…"
+                                : "Schedule pickup"}
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            <div className="space-y-2 rounded-xl border border-border p-3 text-sm">
+                {shipping.error && (
+                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">
+                        {shipping.error}
+                    </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                    <div>
+                        <p className="font-bold uppercase text-text-muted">
+                            Courier
+                        </p>
+                        <p className="text-text">
+                            {shipping.courierName || "—"}
+                        </p>
+                    </div>
+                    <div>
+                        <p className="font-bold uppercase text-text-muted">
+                            AWB
+                        </p>
+                        <p className="text-text">
+                            {shipping.trackingUrl && shipping.awbCode ? (
+                                <a
+                                    href={shipping.trackingUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="font-semibold text-accent hover:underline"
+                                >
+                                    {shipping.awbCode}
+                                </a>
+                            ) : (
+                                shipping.awbCode || "—"
+                            )}
+                        </p>
+                    </div>
+                    <div>
+                        <p className="font-bold uppercase text-text-muted">
+                            Shipment ID
+                        </p>
+                        <p className="text-text">
+                            {shipping.shipmentId || "—"}
+                        </p>
+                    </div>
+                    <div>
+                        <p className="font-bold uppercase text-text-muted">
+                            Shiprocket order
+                        </p>
+                        <p className="text-text">
+                            {shipping.shiprocketOrderId || "—"}
+                        </p>
+                    </div>
+                    <div>
+                        <p className="font-bold uppercase text-text-muted">
+                            Shipment status
+                        </p>
+                        <p className="text-text">
+                            {shipping.lastShipmentStatus || "—"}
+                            {shipping.lastShipmentStatusAt && (
+                                <span className="ml-1 text-text-muted">
+                                    ·{" "}
+                                    {formatDate(
+                                        shipping.lastShipmentStatusAt
+                                    )}
+                                </span>
+                            )}
+                        </p>
+                    </div>
+                    <div>
+                        <p className="font-bold uppercase text-text-muted">
+                            Pickup
+                        </p>
+                        <p className="text-text">
+                            {shipping.pickupStatus || "Not scheduled"}
+                            {shipping.pickupScheduledFor && (
+                                <span className="ml-1 text-text-muted">
+                                    ·{" "}
+                                    {formatDate(
+                                        shipping.pickupScheduledFor
+                                    )}
+                                </span>
+                            )}
+                        </p>
+                    </div>
+                </div>
+
+                {(shipping.labelUrl || shipping.invoiceUrl) && (
+                    <div className="flex flex-wrap gap-3 border-t border-border pt-2 text-xs">
+                        {shipping.labelUrl && (
+                            <a
+                                href={shipping.labelUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="font-bold text-accent hover:underline"
+                            >
+                                Download label (PDF)
+                            </a>
+                        )}
+                        {shipping.invoiceUrl && (
+                            <a
+                                href={shipping.invoiceUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="font-bold text-accent hover:underline"
+                            >
+                                Download invoice (PDF)
+                            </a>
+                        )}
+                    </div>
+                )}
+
+                {shipping.syncedAt && (
+                    <p className="text-[10px] text-text-muted">
+                        Last synced with Shiprocket{" "}
+                        {formatDate(shipping.syncedAt)}
+                    </p>
+                )}
+            </div>
         </div>
     );
 }

@@ -17,3 +17,23 @@ export const createManualOrder = async (payload) => {
 
     return data;
 };
+
+// Re-runs the post-payment Shiprocket fulfilment on an order whose
+// previous attempt failed (order.shipping.error is set).
+export const retryShipmentFulfilment = async (id) => {
+    const { data } = await axiosInstance.post(
+        `/orders/${id}/shipment/retry`
+    );
+
+    return data;
+};
+
+// Asks Shiprocket to schedule the courier pickup. Only valid once an
+// AWB has already been assigned (order.shipping.shipmentId exists).
+export const schedulePickup = async (id) => {
+    const { data } = await axiosInstance.post(
+        `/orders/${id}/shipment/pickup`
+    );
+
+    return data;
+};

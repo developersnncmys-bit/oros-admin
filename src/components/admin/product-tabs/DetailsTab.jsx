@@ -32,7 +32,11 @@ export default function DetailsTab({ product, onSaved }) {
                 ? product.subcategory?._id
                 : product?.subcategory || "",
         taxRate: product?.taxRate ?? 0,
-        leadTimeDays: product?.leadTimeDays ?? 1,
+        // null = "None" (no lead-time badge shown on storefront)
+        leadTimeDays:
+            product?.leadTimeDays === null
+                ? null
+                : product?.leadTimeDays ?? 1,
         minQty: product?.minQty ?? 1,
         status: product?.status || "DRAFT",
         shortDescription: product?.shortDescription || "",
@@ -90,7 +94,10 @@ export default function DetailsTab({ product, onSaved }) {
             category: form.category,
             subcategory: form.subcategory,
             taxRate: Number(form.taxRate) || 0,
-            leadTimeDays: Number(form.leadTimeDays) || 0,
+            leadTimeDays:
+                form.leadTimeDays === null
+                    ? null
+                    : Number(form.leadTimeDays) || 0,
             minQty: Number(form.minQty) || 1,
             status: form.status,
             shortDescription: form.shortDescription,
@@ -220,18 +227,36 @@ export default function DetailsTab({ product, onSaved }) {
                 </FormField>
 
                 <FormField label="Lead time (days)">
-                    <input
-                        type="number"
-                        min="0"
-                        className={inputClass}
-                        value={form.leadTimeDays}
-                        onChange={(e) =>
-                            setForm((prev) => ({
-                                ...prev,
-                                leadTimeDays: e.target.value
-                            }))
-                        }
-                    />
+                    <div className="flex gap-2">
+                        <select
+                            className={inputClass}
+                            value={form.leadTimeDays === null ? "none" : "specify"}
+                            onChange={(e) =>
+                                setForm((prev) => ({
+                                    ...prev,
+                                    leadTimeDays:
+                                        e.target.value === "none" ? null : 1
+                                }))
+                            }
+                        >
+                            <option value="specify">Specify days</option>
+                            <option value="none">None</option>
+                        </select>
+                        {form.leadTimeDays !== null && (
+                            <input
+                                type="number"
+                                min="0"
+                                className={inputClass}
+                                value={form.leadTimeDays}
+                                onChange={(e) =>
+                                    setForm((prev) => ({
+                                        ...prev,
+                                        leadTimeDays: e.target.value
+                                    }))
+                                }
+                            />
+                        )}
+                    </div>
                 </FormField>
             </div>
 

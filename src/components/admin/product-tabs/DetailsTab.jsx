@@ -37,6 +37,7 @@ export default function DetailsTab({ product, onSaved }) {
             product?.leadTimeDays === null
                 ? null
                 : product?.leadTimeDays ?? 1,
+        leadTimeLabel: product?.leadTimeLabel || "",
         minQty: product?.minQty ?? 1,
         status: product?.status || "DRAFT",
         shortDescription: product?.shortDescription || "",
@@ -98,6 +99,7 @@ export default function DetailsTab({ product, onSaved }) {
                 form.leadTimeDays === null
                     ? null
                     : Number(form.leadTimeDays) || 0,
+            leadTimeLabel: form.leadTimeLabel?.trim() || "",
             minQty: Number(form.minQty) || 1,
             status: form.status,
             shortDescription: form.shortDescription,
@@ -245,7 +247,7 @@ export default function DetailsTab({ product, onSaved }) {
                         {form.leadTimeDays !== null && (
                             <input
                                 type="number"
-                                min="0"
+                                min="1"
                                 className={inputClass}
                                 value={form.leadTimeDays}
                                 onChange={(e) =>
@@ -258,6 +260,29 @@ export default function DetailsTab({ product, onSaved }) {
                         )}
                     </div>
                 </FormField>
+
+                {form.leadTimeDays === null && (
+                    <FormField label="Lead time label (optional)">
+                        <input
+                            type="text"
+                            maxLength={60}
+                            placeholder="e.g. Ready to ship"
+                            className={inputClass}
+                            value={form.leadTimeLabel}
+                            onChange={(e) =>
+                                setForm((prev) => ({
+                                    ...prev,
+                                    leadTimeLabel: e.target.value
+                                }))
+                            }
+                        />
+                        <p className="mt-1 text-xs text-text-muted">
+                            Shown on the storefront in place of the lead-time badge
+                            (e.g. &ldquo;Ready to ship&rdquo;). Leave blank to hide
+                            the badge entirely.
+                        </p>
+                    </FormField>
+                )}
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

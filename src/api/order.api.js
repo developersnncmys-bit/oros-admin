@@ -37,3 +37,8 @@ export const schedulePickup = async (id) => {
 
     return data;
 };
+
+export const deleteOrder = async (id) => {
+    const { data } = await axiosInstance.delete(`/orders/${id}`);
+    return data;
+};

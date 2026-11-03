@@ -9,7 +9,8 @@ import {
     getAdminOrders,
     updateOrderStatus,
     retryShipmentFulfilment,
-    schedulePickup
+    schedulePickup,
+    deleteOrder
 } from "@/api/order.api";
 import Modal from "@/components/ui/Modal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
@@ -111,6 +112,8 @@ export default function OrdersView({
     const [updatingId, setUpdatingId] = useState(null);
     // Status change waiting for the admin to confirm: { order, status }
     const [pendingStatus, setPendingStatus] = useState(null);
+    const [pendingDelete, setPendingDelete] = useState(null);
+    const [deletingId, setDeletingId] = useState(null);
     const [totalPages, setTotalPages] = useState(1);
     // Which shipment-action button is currently in-flight on the detail
     // modal — "retry" or "pickup". Keeps both buttons from being clicked
@@ -190,6 +193,21 @@ export default function OrdersView({
         const { order, status } = pendingStatus;
         setPendingStatus(null);
         handleStatusChange(order, status);
+    };
+
+    const confirmDelete = async () => {
+        const order = pendingDelete;
+        setPendingDelete(null);
+        setDeletingId(order._id);
+        try {
+            await deleteOrder(order._id);
+            setOrders((prev) => prev.filter((o) => o._id !== order._id));
+            setViewing((cur) => (cur && cur._id === order._id ? null : cur));
+        } catch (err) {
+            alertDialog(err.message || "Failed to delete order");
+        } finally {
+            setDeletingId(null);
+        }
     };
 
     const handleStatusChange = async (order, status) => {
@@ -428,12 +446,21 @@ export default function OrdersView({
                                             {formatDate(order.createdAt)}
                                         </p>
                                     </div>
-                                    <button
-                                        onClick={() => setViewing(order)}
-                                        className="shrink-0 text-xs font-bold text-accent hover:text-accent-dark"
-                                    >
-                                        View
-                                    </button>
+                                    <div className="flex shrink-0 items-center gap-3">
+                                        <button
+                                            onClick={() => setViewing(order)}
+                                            className="text-xs font-bold text-accent hover:text-accent-dark"
+                                        >
+                                            View
+                                        </button>
+                                        <button
+                                            onClick={() => setPendingDelete(order)}
+                                            disabled={deletingId === order._id}
+                                            className="text-xs font-bold text-red-600 hover:text-red-700 disabled:opacity-50"
+                                        >
+                                            {deletingId === order._id ? "Deleting…" : "Delete"}
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -681,12 +708,21 @@ export default function OrdersView({
                                                 )}
                                             </td>
                                             <td className="px-5 py-3 text-right">
-                                                <button
-                                                    onClick={() => setViewing(order)}
-                                                    className="text-xs font-bold text-accent hover:text-accent-dark"
-                                                >
-                                                    View
-                                                </button>
+                                                <div className="flex items-center justify-end gap-3">
+                                                    <button
+                                                        onClick={() => setViewing(order)}
+                                                        className="text-xs font-bold text-accent hover:text-accent-dark"
+                                                    >
+                                                        View
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setPendingDelete(order)}
+                                                        disabled={deletingId === order._id}
+                                                        className="text-xs font-bold text-red-600 hover:text-red-700 disabled:opacity-50"
+                                                    >
+                                                        {deletingId === order._id ? "Deleting…" : "Delete"}
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
@@ -765,6 +801,30 @@ export default function OrdersView({
                     tone="primary"
                     onConfirm={confirmStatusChange}
                     onCancel={() => setPendingStatus(null)}
+                />
+            )}
+
+            {pendingDelete && (
+                <ConfirmDialog
+                    title="Delete this order?"
+                    description={
+                        <>
+                            Order{" "}
+                            <span className="font-semibold text-text">
+                                #{pendingDelete._id}
+                            </span>{" "}
+                            and its line items will be permanently removed.
+                            <span className="mt-3 block rounded-lg bg-red-50 px-3 py-2 font-semibold text-red-600">
+                                This cannot be undone. If a Shiprocket shipment was
+                                already created, cancel it from the Shiprocket
+                                dashboard first.
+                            </span>
+                        </>
+                    }
+                    confirmLabel="Yes, delete"
+                    tone="danger"
+                    onConfirm={confirmDelete}
+                    onCancel={() => setPendingDelete(null)}
                 />
             )}
 

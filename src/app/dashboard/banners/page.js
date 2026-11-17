@@ -7,13 +7,134 @@ import {
     getBanners,
     createBanner,
     updateBanner,
-    deleteBanner
+    deleteBanner,
+    getBannerUploadSignature,
+    uploadFileToCloudinary
 } from "@/api/banner.api";
 import Modal from "@/components/ui/Modal";
 import FormField, { inputClass } from "@/components/ui/FormField";
 import Badge from "@/components/ui/Badge";
 import { extractList } from "@/utils/extractList";
 import { confirmDialog, alertDialog } from "@/store/useDialogStore";
+
+const MAX_FILE_SIZE_MB = 10;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+const formatMb = (bytes) => (bytes / (1024 * 1024)).toFixed(2);
+
+// Build an admin-readable alert for a failed banner save. Prefers the
+// most specific reason we can prove (which file, its actual size, which
+// server rule was tripped) and only falls back to the raw server string
+// when nothing more specific matches.
+function describeBannerFailure(err, { desktopFile, mobileFile }) {
+    const raw = err?.message || "";
+    const status = err?.status || err?.response?.status;
+
+    // 1. Oversized — client-provable (names the exact file and its size)
+    const oversized = [];
+    if (desktopFile && desktopFile.size > MAX_FILE_SIZE_BYTES) {
+        oversized.push(
+            `Desktop file "${desktopFile.name}" is ${formatMb(desktopFile.size)} MB`
+        );
+    }
+    if (mobileFile && mobileFile.size > MAX_FILE_SIZE_BYTES) {
+        oversized.push(
+            `Mobile file "${mobileFile.name}" is ${formatMb(mobileFile.size)} MB`
+        );
+    }
+    if (oversized.length > 0) {
+        return {
+            title: "Media file is too large",
+            description: `${oversized.join(" and ")}. Maximum allowed is ${MAX_FILE_SIZE_MB} MB per file. Please pick a smaller file.`
+        };
+    }
+
+    // 2. Server said "too large" (413 from our multer handler)
+    if (status === 413 || /file too large|too large|maximum size/i.test(raw)) {
+        return {
+            title: "Media file is too large",
+            description:
+                raw ||
+                `The server rejected the upload because the file is larger than ${MAX_FILE_SIZE_MB} MB.`
+        };
+    }
+
+    // 3. Mongoose complained about the media URL paths — multer never
+    //    received the files (usually a bad Content-Type or the field
+    //    name mismatch), so the save was attempted without any URLs.
+    if (/mediaUrl(Desktop|Mobile)/i.test(raw)) {
+        return {
+            title: "Media files didn't upload",
+            description:
+                "The desktop and mobile media files didn't reach the server. Please re-pick both files and click Save again."
+        };
+    }
+
+    // 4. Network — request never got a response
+    if (/network error/i.test(raw)) {
+        return {
+            title: "Couldn't reach the server",
+            description:
+                "The banner upload didn't complete because the server couldn't be reached. Check your internet connection and try again."
+        };
+    }
+
+    // 5. Auth
+    if (status === 401 || /unauthori[sz]ed/i.test(raw)) {
+        return {
+            title: "Session expired",
+            description: "Please sign in again and retry the banner save."
+        };
+    }
+    if (status === 403 || /forbidden/i.test(raw)) {
+        return {
+            title: "Not allowed",
+            description: "This account doesn't have permission to add or update banners."
+        };
+    }
+
+    // 6. Fallback — use the server's own message so the admin at least
+    //    sees the real reason, not a generic placeholder.
+    return {
+        title: "Failed to save banner",
+        description: raw || "An unknown error occurred. Please try again."
+    };
+}
+
+function MediaPreview({ file, previewUrl, fallbackUrl }) {
+    // Prefer the picked file's blob URL; fall back to the saved banner's URL
+    // when editing and no new file has been chosen.
+    const src = previewUrl || fallbackUrl || "";
+    if (!src) return null;
+
+    const isVideo = file
+        ? file.type?.startsWith("video/")
+        : /\.(mp4|mov|webm)(\?|$)/i.test(src);
+
+    return (
+        <div className="mt-2 flex items-center gap-2">
+            {isVideo ? (
+                <video
+                    src={src}
+                    className="h-16 w-28 rounded-lg border border-border object-cover"
+                    muted
+                    playsInline
+                />
+            ) : (
+                <img
+                    src={src}
+                    alt="preview"
+                    className="h-16 w-28 rounded-lg border border-border object-cover"
+                />
+            )}
+            {file && (
+                <span className="truncate text-xs text-text-muted">
+                    {file.name} · {(file.size / (1024 * 1024)).toFixed(2)} MB
+                </span>
+            )}
+        </div>
+    );
+}
 
 const EMPTY_FORM = {
     type: "SLIDER",
@@ -41,8 +162,32 @@ export default function BannersPage() {
     const [form, setForm] = useState(EMPTY_FORM);
     const [desktopFile, setDesktopFile] = useState(null);
     const [mobileFile, setMobileFile] = useState(null);
+    const [desktopPreview, setDesktopPreview] = useState("");
+    const [mobilePreview, setMobilePreview] = useState("");
     const [isSaving, setIsSaving] = useState(false);
     const [formError, setFormError] = useState("");
+
+    // Build object-URL previews for the picked files and revoke them when
+    // the file changes or the component unmounts, to avoid memory leaks.
+    useEffect(() => {
+        if (!desktopFile) {
+            setDesktopPreview("");
+            return;
+        }
+        const url = URL.createObjectURL(desktopFile);
+        setDesktopPreview(url);
+        return () => URL.revokeObjectURL(url);
+    }, [desktopFile]);
+
+    useEffect(() => {
+        if (!mobileFile) {
+            setMobilePreview("");
+            return;
+        }
+        const url = URL.createObjectURL(mobileFile);
+        setMobilePreview(url);
+        return () => URL.revokeObjectURL(url);
+    }, [mobileFile]);
 
     const [refreshKey, setRefreshKey] = useState(0);
     const reload = () => setRefreshKey((key) => key + 1);
@@ -109,41 +254,114 @@ export default function BannersPage() {
         setIsModalOpen(true);
     };
 
+    const handleFileSelect = (event, setFile, slot) => {
+        const file = event.target.files?.[0] || null;
+
+        if (!file) {
+            setFile(null);
+            return;
+        }
+
+        const isMedia =
+            file.type?.startsWith("image/") || file.type?.startsWith("video/");
+
+        if (!isMedia) {
+            const message = `"${file.name}" isn't an image or video. Please pick a JPG, PNG, WebP, MP4, MOV or WebM file for the ${slot} media.`;
+            setFormError(message);
+            alertDialog(message, "Unsupported file type");
+            event.target.value = "";
+            setFile(null);
+            return;
+        }
+
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+            const message = `"${file.name}" is ${formatMb(file.size)} MB. The ${slot} media must be under ${MAX_FILE_SIZE_MB} MB — please pick a smaller file or compress this one.`;
+            setFormError(message);
+            alertDialog(message, "Media file is too large");
+            // reset the native input so the same oversized file can be re-picked after optimising
+            event.target.value = "";
+            setFile(null);
+            return;
+        }
+
+        setFormError("");
+        setFile(file);
+    };
+
     const handleSave = async (event) => {
         event.preventDefault();
         setFormError("");
 
         if (!editing && (!desktopFile || !mobileFile)) {
-            setFormError("Desktop and mobile media are both required");
+            const missing = [];
+            if (!desktopFile) missing.push("desktop");
+            if (!mobileFile) missing.push("mobile");
+            const message = `Please select the ${missing.join(" and ")} media file${missing.length > 1 ? "s" : ""} before saving.`;
+            setFormError(message);
+            alertDialog(message, "Missing media files");
+            return;
+        }
+
+        // Safety net: re-validate size at submit time in case a file ended up
+        // in state without going through handleFileSelect.
+        const oversized = [
+            ["Desktop", desktopFile],
+            ["Mobile", mobileFile]
+        ].find(([, file]) => file && file.size > MAX_FILE_SIZE_BYTES);
+
+        if (oversized) {
+            const [label, file] = oversized;
+            const message = `${label} media "${file.name}" is ${formatMb(file.size)} MB. Maximum allowed is ${MAX_FILE_SIZE_MB} MB — please choose a smaller file.`;
+            setFormError(message);
+            alertDialog(message, "Media file is too large");
             return;
         }
 
         setIsSaving(true);
 
         try {
-            const formData = new FormData();
-            Object.entries(form).forEach(([key, value]) => {
-                formData.append(key, value);
-            });
+            const payload = { ...form };
 
-            if (desktopFile) {
-                formData.append("mediaDesktop", desktopFile);
-            }
+            // Upload picked files directly to Cloudinary, bypassing Vercel's
+            // 4.5 MB request-body cap. Only hit the signature endpoint if at
+            // least one file actually needs uploading.
+            if (desktopFile || mobileFile) {
+                const sig = await getBannerUploadSignature();
 
-            if (mobileFile) {
-                formData.append("mediaMobile", mobileFile);
+                if (desktopFile) {
+                    const { secureUrl, publicId } = await uploadFileToCloudinary(
+                        desktopFile,
+                        sig
+                    );
+                    payload.mediaUrlDesktop = secureUrl;
+                    payload.mediaUrlDesktopPublicId = publicId;
+                }
+
+                if (mobileFile) {
+                    const { secureUrl, publicId } = await uploadFileToCloudinary(
+                        mobileFile,
+                        sig
+                    );
+                    payload.mediaUrlMobile = secureUrl;
+                    payload.mediaUrlMobilePublicId = publicId;
+                }
             }
 
             if (editing) {
-                await updateBanner(editing._id, formData);
+                await updateBanner(editing._id, payload);
             } else {
-                await createBanner(formData);
+                await createBanner(payload);
             }
 
             setIsModalOpen(false);
             reload();
         } catch (err) {
-            setFormError(err.message || "Failed to save banner");
+            const { title, description } = describeBannerFailure(err, {
+                desktopFile,
+                mobileFile
+            });
+            setFormError(description);
+            alertDialog(description, title);
         } finally {
             setIsSaving(false);
         }
@@ -488,25 +706,31 @@ export default function BannersPage() {
                         </div>
 
                         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <FormField label="Desktop media (leave empty to keep)">
+                            <FormField label={`Desktop media (max ${MAX_FILE_SIZE_MB} MB, leave empty to keep)`}>
                                 <input
                                     type="file"
                                     accept="image/*,video/*"
-                                    onChange={(e) =>
-                                        setDesktopFile(e.target.files?.[0] || null)
-                                    }
+                                    onChange={(e) => handleFileSelect(e, setDesktopFile, "desktop")}
                                     className="text-sm text-text"
+                                />
+                                <MediaPreview
+                                    file={desktopFile}
+                                    previewUrl={desktopPreview}
+                                    fallbackUrl={editing?.mediaUrlDesktop}
                                 />
                             </FormField>
 
-                            <FormField label="Mobile media (leave empty to keep)">
+                            <FormField label={`Mobile media (max ${MAX_FILE_SIZE_MB} MB, leave empty to keep)`}>
                                 <input
                                     type="file"
                                     accept="image/*,video/*"
-                                    onChange={(e) =>
-                                        setMobileFile(e.target.files?.[0] || null)
-                                    }
+                                    onChange={(e) => handleFileSelect(e, setMobileFile, "mobile")}
                                     className="text-sm text-text"
+                                />
+                                <MediaPreview
+                                    file={mobileFile}
+                                    previewUrl={mobilePreview}
+                                    fallbackUrl={editing?.mediaUrlMobile}
                                 />
                             </FormField>
                         </div>

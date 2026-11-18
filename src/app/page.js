@@ -137,8 +137,8 @@ export default function LoginPage() {
 
     return (
         <div className="grid min-h-screen w-full grid-cols-1 lg:grid-cols-2">
-            {/* Left — brand panel */}
-            <div className="relative hidden flex-col items-center justify-center overflow-hidden bg-primary px-14 text-white lg:flex">
+            {/* Top (mobile) / Left (desktop) — brand panel */}
+            <div className="relative flex flex-col items-center justify-center overflow-hidden bg-primary px-6 py-10 text-white sm:px-10 sm:py-14 lg:px-14">
                 <div
                     className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-accent/20 blur-3xl"
                     aria-hidden
@@ -152,21 +152,21 @@ export default function LoginPage() {
                     <img
                         src="/logo/oros-footer-logo.png"
                         alt="OROS"
-                        className="h-46 w-46 object-contain"
+                        className="h-24 w-24 object-contain sm:h-32 sm:w-32 lg:h-46 lg:w-46"
                     />
 
-                    <h1 className="mt-8 max-w-lg text-5xl font-extrabold leading-tight tracking-tight">
+                    <h1 className="mt-4 max-w-lg text-2xl font-extrabold leading-tight tracking-tight sm:mt-6 sm:text-3xl lg:mt-8 lg:text-5xl">
                         Every Shape. <span className="text-accent">Every shade.</span>
                     </h1>
 
-                    <p className="mt-4 max-w-sm text-base leading-6 text-white/70">
+                    <p className="mt-2 max-w-sm text-sm leading-5 text-white/70 sm:mt-3 sm:text-base sm:leading-6 lg:mt-4">
                         Made-to-order 3D prints, run from one console.
                     </p>
                 </div>
             </div>
 
-            {/* Right — login form */}
-            <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-bg px-4 py-10 sm:px-6 sm:py-12">
+            {/* Bottom (mobile) / Right (desktop) — login form */}
+            <div className="relative flex flex-col items-center justify-center overflow-hidden bg-bg px-4 py-10 sm:px-6 sm:py-12 lg:min-h-screen">
                 <div
                     className="pointer-events-none absolute inset-0 opacity-[0.4]"
                     style={{
@@ -188,16 +188,6 @@ export default function LoginPage() {
                     className="pointer-events-none absolute -bottom-24 -left-20 h-72 w-72 rounded-full bg-accent/10 blur-3xl"
                     aria-hidden
                 />
-                <div className="relative z-10 mb-8 flex justify-center lg:hidden">
-                    <div className="rounded-xl border border-border bg-white p-3">
-                        <img
-                            src="/logo/Orosent-20.svg"
-                            alt="OROS"
-                            className="h-14 w-14 object-contain"
-                        />
-                    </div>
-                </div>
-
                 <div className="relative z-10 w-full max-w-sm rounded-2xl border border-border bg-white p-6 shadow-xl shadow-primary/5 transition hover:shadow-2xl hover:shadow-primary/10 sm:p-8">
                     {step === "PHONE" ? (
                         <>

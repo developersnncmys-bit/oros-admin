@@ -623,8 +623,8 @@ function ProductViewModal({ productId, onClose, onEdit }) {
         0
     );
 
-    const sizeOptions = (data?.options || []).filter((o) =>
-        /size|dimension/i.test(o.name || "")
+    const sizeOptions = (data?.options || []).filter(
+        (o) => o.type === "SIZE" || /size|dimension/i.test(o.name || "")
     );
     const formatDims = (v) => {
         const parts = [v.length, v.width, v.height].filter(

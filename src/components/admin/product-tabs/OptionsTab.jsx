@@ -15,12 +15,13 @@ import { inputClass } from "@/components/ui/FormField";
 import { extractList } from "@/utils/extractList";
 import { confirmDialog, alertDialog } from "@/store/useDialogStore";
 
-const OPTION_TYPES = ["SELECT", "TEXT", "COLOR", "FILE"];
+const OPTION_TYPES = ["SELECT", "COLOR", "SIZE"];
 const DIMENSION_UNITS = ["mm", "cm", "in"];
 
-// Dimension inputs only make sense on a size-type option. Match loosely so
-// "Size", "Sizes", "Dimensions" all qualify without a dedicated option type.
-const isSizeOption = (option) => /size|dimension/i.test(option?.name || "");
+// Dimension inputs show when the option is explicitly typed SIZE, or when the
+// name looks size-y (back-compat for data created before the SIZE type existed).
+const isSizeOption = (option) =>
+    option?.type === "SIZE" || /size|dimension/i.test(option?.name || "");
 
 const formatDimensions = (val) => {
     const parts = [val.length, val.width, val.height].filter(
